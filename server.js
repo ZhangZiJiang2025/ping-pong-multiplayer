@@ -345,6 +345,7 @@ function endGame() {
     }, 3000); // 3秒後に交代
   } else {
     // 待機者がいない場合、再戦可能
+    gameState.scores = { left: 0, right: 0 };
     gameState.readyFlags = { left: false, right: false };
   }
 }
