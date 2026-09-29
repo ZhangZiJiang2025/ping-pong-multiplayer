@@ -232,6 +232,7 @@
     let mySeat = null;
     let gameState = null;
     let myPaddleY = 250; // ローカルパドル位置
+    let previousGameStarted = false; // 前回のゲーム状態
 
     // WebSocket接続
     function connect() {
@@ -264,6 +265,7 @@
 
     // 状態更新処理
     function handleStateUpdate(data) {
+      const oldGameState = gameState;
       gameState = data;
       mySeat = data.mySeat;
 
@@ -279,10 +281,18 @@
       difficultySelect.value = data.difficulty;
       difficultyValue.textContent = data.difficulty;
 
-      // 自分のパドル位置を同期（サーバーからの更新時のみ）
-      if (mySeat && data.paddles[mySeat] !== undefined) {
-        myPaddleY = data.paddles[mySeat];
+      // 自分のパドル位置の同期（特定の条件下のみ）
+      if (mySeat && mySeat !== oldGameState?.mySeat) {
+        // 席が変わった時（新規参加、復帰時）
+        myPaddleY = data.paddles[mySeat] || 250;
+      } else if (data.gameStarted && !oldGameState?.gameStarted) {
+        // ゲームが開始された瞬間（スタート押下時）
+        myPaddleY = 250; // 中央にリセット
+      } else if (!data.gameStarted && oldGameState?.gameStarted) {
+        // ゲームが終了した瞬間
+        myPaddleY = 250; // 中央にリセット
       }
+      // 上記以外（特にゲーム中）はサーバーからの更新で上書きしない
 
       // UIの表示制御
       updateUI(data);
