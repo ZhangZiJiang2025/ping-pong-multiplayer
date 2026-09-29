@@ -300,11 +300,11 @@
 
     // UI更新
     function updateUI(data) {
-      // 難易度選択（左席でゲーム前のみ）
-      if (mySeat === 'left' && !data.gameStarted && data.scores.left === 0 && data.scores.right === 0) {
+      // 難易度選択（左席でゲーム中でない時）
+      if (mySeat === 'left' && !data.gameStarted) {
         difficultySelector.classList.remove('hidden');
         difficultyDisplay.classList.add('hidden');
-      } else if (mySeat === 'right' && !data.gameStarted && data.scores.left === 0 && data.scores.right === 0) {
+      } else if (mySeat === 'right' && !data.gameStarted) {
         difficultySelector.classList.add('hidden');
         difficultyDisplay.classList.remove('hidden');
       } else {
