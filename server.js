@@ -203,6 +203,9 @@ function startGame() {
   gameState.gameStarted = true;
   gameState.readyFlags = { left: false, right: false };
 
+  // スコアリセット（再スタート時）
+  gameState.scores = { left: 0, right: 0 };
+
   // ボール初期化
   const settings = DIFFICULTY_SETTINGS[gameState.difficulty];
   const angle = (Math.random() * 60 - 30) * Math.PI / 180;
@@ -344,8 +347,7 @@ function endGame() {
       broadcastState();
     }, 3000); // 3秒後に交代
   } else {
-    // 待機者がいない場合、再戦可能
-    gameState.scores = { left: 0, right: 0 };
+    // 待機者がいない場合、再戦可能（スコアはそのまま保持）
     gameState.readyFlags = { left: false, right: false };
   }
 }
