@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ping-pong-multiplayer
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production

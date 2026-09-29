@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>卓球ゲーム - 2人対戦</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      color: white;
+    }
+
+    #container {
+      text-align: center;
+    }
+
+    #nameScreen, #gameScreen {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      padding: 40px;
+      border-radius: 20px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    #nameScreen h1 {
+      font-size: 2.5em;
+      margin-bottom: 30px;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    #nameInput {
+      padding: 15px;
+      font-size: 1.2em;
+      border: none;
+      border-radius: 10px;
+      margin-right: 10px;
+      width: 250px;
+    }
+
+    #joinButton, #readyButton, #restartButton {
+      padding: 15px 30px;
+      font-size: 1.2em;
+      border: none;
+      border-radius: 10px;
+      background: #4CAF50;
+      color: white;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    #joinButton:hover, #readyButton:hover, #restartButton:hover {
+      background: #45a049;
+    }
+
+    #gameScreen {
+      display: none;
+    }
+
+    #gameInfo {
+      margin-bottom: 20px;
+      font-size: 1.3em;
+    }
+
+    #playerNames {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-weight: bold;
+      font-size: 1.1em;
+    }
+
+    #scores {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      font-size: 2em;
+      font-weight: bold;
+    }
+
+    #canvas {
+      border: 3px solid white;
+      border-radius: 10px;
+      background: #1a1a2e;
+      display: block;
+      margin: 0 auto;
+    }
+
+    #controls {
+      margin-top: 20px;
+    }
+
+    #statusMessage {
+      margin-top: 20px;
+      font-size: 1.3em;
+      min-height: 30px;
+      font-weight: bold;
+    }
+
+    .win {
+      color: #4CAF50;
+      font-size: 1.8em;
+      animation: pulse 1s infinite;
+    }
+
+    .lose {
+      color: #f44336;
+      font-size: 1.8em;
+    }
+
+    .waiting {
+      color: #ffd700;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    #difficultySelector {
+      margin: 20px 0;
+    }
+
+    #difficultySelector label {
+      font-size: 1.1em;
+      margin-right: 10px;
+    }
+
+    #difficultySelect {
+      padding: 8px;
+      font-size: 1em;
+      border-radius: 5px;
+      border: none;
+    }
+
+    #queueInfo {
+      margin-top: 15px;
+      font-size: 1.1em;
+      color: #ffd700;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <!-- 名前入力画面 -->
+    <div id="nameScreen">
+      <h1>🏓 卓球ゲーム</h1>
+      <input type="text" id="nameInput" placeholder="名前を入力してください" maxlength="15">
+      <button id="joinButton">参加</button>
+    </div>
+
+    <!-- ゲーム画面 -->
+    <div id="gameScreen">
+      <div id="gameInfo">
+        <div id="playerNames">
+          <div id="leftPlayerName">-</div>
+          <div id="rightPlayerName">-</div>
+        </div>
+        <div id="scores">
+          <div id="leftScore">0</div>
+          <div id="rightScore">0</div>
+        </div>
+      </div>
+
+      <canvas id="canvas" width="800" height="500"></canvas>
+
+      <div id="statusMessage"></div>
+
+      <div id="controls">
+        <div id="difficultySelector" class="hidden">
+          <label for="difficultySelect">難易度:</label>
+          <select id="difficultySelect">
+            <option value="かんたん">かんたん</option>
+            <option value="ふつう" selected>ふつう</option>
+            <option value="むずかしい">むずかしい</option>
+          </select>
+        </div>
+
+        <div id="difficultyDisplay" class="hidden">
+          <label>難易度:</label>
+          <span id="difficultyValue">ふつう</span>
+        </div>
+
+        <button id="readyButton" class="hidden">スタート</button>
+        <button id="restartButton" class="hidden">再スタート</button>
+      </div>
+
+      <div id="queueInfo" class="hidden"></div>
+
+      <div style="margin-top: 20px; font-size: 0.9em; opacity: 0.8;">
+        矢印キー ↑↓ でパドルを操作
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const nameScreen = document.getElementById('nameScreen');
+    const gameScreen = document.getElementById('gameScreen');
+    const nameInput = document.getElementById('nameInput');
+    const joinButton = document.getElementById('joinButton');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const leftPlayerName = document.getElementById('leftPlayerName');
+    const rightPlayerName = document.getElementById('rightPlayerName');
+    const leftScore = document.getElementById('leftScore');
+    const rightScore = document.getElementById('rightScore');
+    const statusMessage = document.getElementById('statusMessage');
+    const readyButton = document.getElementById('readyButton');
+    const restartButton = document.getElementById('restartButton');
+    const difficultySelector = document.getElementById('difficultySelector');
+    const difficultySelect = document.getElementById('difficultySelect');
+    const difficultyDisplay = document.getElementById('difficultyDisplay');
+    const difficultyValue = document.getElementById('difficultyValue');
+    const queueInfo = document.getElementById('queueInfo');
+
+    let ws;
+    let myName = '';
+    let mySeat = null;
+    let gameState = null;
+
+    // WebSocket接続
+    function connect() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${location.host}`);
+
+      ws.onopen = () => {
+        console.log('WebSocket接続成功');
+        if (myName) {
+          ws.send(JSON.stringify({ type: 'join', name: myName }));
+        }
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'state') {
+          handleStateUpdate(data);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket切断');
+        setTimeout(connect, 1000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocketエラー:', error);
+      };
+    }
+
+    // 状態更新処理
+    function handleStateUpdate(data) {
+      gameState = data;
+      mySeat = data.mySeat;
+
+      // プレイヤー名表示
+      leftPlayerName.textContent = data.seats.left || '-';
+      rightPlayerName.textContent = data.seats.right || '-';
+
+      // スコア表示
+      leftScore.textContent = data.scores.left;
+      rightScore.textContent = data.scores.right;
+
+      // 難易度表示
+      difficultySelect.value = data.difficulty;
+      difficultyValue.textContent = data.difficulty;
+
+      // UIの表示制御
+      updateUI(data);
+
+      // ゲーム描画
+      draw(data);
+    }
+
+    // UI更新
+    function updateUI(data) {
+      // 難易度選択（左席でゲーム前のみ）
+      if (mySeat === 'left' && !data.gameStarted && data.scores.left === 0 && data.scores.right === 0) {
+        difficultySelector.classList.remove('hidden');
+        difficultyDisplay.classList.add('hidden');
+      } else if (mySeat === 'right' && !data.gameStarted && data.scores.left === 0 && data.scores.right === 0) {
+        difficultySelector.classList.add('hidden');
+        difficultyDisplay.classList.remove('hidden');
+      } else {
+        difficultySelector.classList.add('hidden');
+        difficultyDisplay.classList.add('hidden');
+      }
+
+      // 観戦者
+      if (mySeat === 'spectator') {
+        statusMessage.className = 'waiting';
+        statusMessage.textContent = `対戦中です。しばらくお待ちください（あなたは${data.queuePosition}番目です）`;
+        readyButton.classList.add('hidden');
+        restartButton.classList.add('hidden');
+        queueInfo.classList.remove('hidden');
+        queueInfo.textContent = `待機中: ${data.waitQueueLength}人`;
+        return;
+      }
+
+      queueInfo.classList.add('hidden');
+
+      // 相手不在
+      if (!data.seats.left || !data.seats.right) {
+        statusMessage.className = 'waiting';
+        if (data.opponentDisconnected) {
+          statusMessage.textContent = '相手との接続が切れました。次の相手を待っています';
+        } else {
+          statusMessage.textContent = '相手を待っています...';
+        }
+        readyButton.classList.add('hidden');
+        restartButton.classList.add('hidden');
+        return;
+      }
+
+      // 勝敗表示
+      if (data.result) {
+        if (data.result === 'win') {
+          statusMessage.className = 'win';
+          statusMessage.textContent = 'あなたの勝ち！';
+        } else if (data.result === 'lose') {
+          statusMessage.className = 'lose';
+          statusMessage.textContent = 'あなたの負け';
+        }
+
+        // 再戦ボタン
+        if (data.waitQueueLength === 0) {
+          restartButton.classList.remove('hidden');
+          readyButton.classList.add('hidden');
+        } else {
+          restartButton.classList.add('hidden');
+          readyButton.classList.add('hidden');
+
+          if (data.result === 'lose') {
+            statusMessage.textContent += ' - 待機列に移動します...';
+          }
+        }
+      }
+      // ゲーム中
+      else if (data.gameStarted) {
+        statusMessage.className = '';
+        statusMessage.textContent = 'ゲーム中';
+        readyButton.classList.add('hidden');
+        restartButton.classList.add('hidden');
+      }
+      // スタート待ち
+      else {
+        statusMessage.className = '';
+        if (data.readyFlags[mySeat]) {
+          statusMessage.textContent = '相手の準備を待っています...';
+        } else {
+          statusMessage.textContent = '準備ができたらスタートを押してください';
+        }
+        readyButton.classList.remove('hidden');
+        restartButton.classList.add('hidden');
+      }
+    }
+
+    // 描画
+    function draw(data) {
+      // 背景
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 中央線
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 10]);
+      ctx.beginPath();
+      ctx.moveTo(canvas.width / 2, 0);
+      ctx.lineTo(canvas.width / 2, canvas.height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // 左パドル
+      ctx.fillStyle = mySeat === 'left' ? '#4CAF50' : '#ffffff';
+      ctx.fillRect(0, data.paddles.left, 10, 80);
+
+      // 右パドル
+      ctx.fillStyle = mySeat === 'right' ? '#4CAF50' : '#ffffff';
+      ctx.fillRect(canvas.width - 10, data.paddles.right, 10, 80);
+
+      // ボール
+      if (data.ball) {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(data.ball.x, data.ball.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // 参加ボタン
+    joinButton.addEventListener('click', () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+        alert('名前を入力してください');
+        return;
+      }
+
+      myName = name;
+      nameScreen.style.display = 'none';
+      gameScreen.style.display = 'block';
+
+      connect();
+
+      // ハートビート送信（5秒ごと）
+      setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'heartbeat', name: myName }));
+        }
+      }, 5000);
+    });
+
+    // Enterキーで参加
+    nameInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        joinButton.click();
+      }
+    });
+
+    // スタートボタン
+    readyButton.addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ready' }));
+      }
+    });
+
+    // 再スタートボタン
+    restartButton.addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'restart' }));
+      }
+    });
+
+    // 難易度変更
+    difficultySelect.addEventListener('change', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'difficulty',
+          difficulty: difficultySelect.value
+        }));
+      }
+    });
+
+    // キーボード操作
+    const keys = {};
+    document.addEventListener('keydown', (e) => {
+      keys[e.key] = true;
+    });
+
+    document.addEventListener('keyup', (e) => {
+      keys[e.key] = false;
+    });
+
+    // パドル操作送信
+    setInterval(() => {
+      if (mySeat && gameState && gameState.gameStarted) {
+        const paddleSpeed = 8;
+        let currentY = gameState.paddles[mySeat];
+
+        if (keys['ArrowUp']) {
+          currentY -= paddleSpeed;
+        }
+        if (keys['ArrowDown']) {
+          currentY += paddleSpeed;
+        }
+
+        currentY = Math.max(0, Math.min(420, currentY)); // 420 = 500 - 80
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'paddle',
+            y: currentY
+          }));
+        }
+      }
+    }, 1000 / 30); // 30fps
+  </script>
+</body>
+</html>

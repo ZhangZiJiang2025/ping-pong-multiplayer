@@ -1,0 +1,36 @@
+🏓 卓球ゲーム - デプロイガイド
+
+このプロジェクトは完成しています。以下の手順でRenderにデプロイできます。
+
+【ローカルテスト（オプション）】
+もしローカルで動作確認したい場合：
+1. npm install
+2. npm start
+3. http://localhost:3000 にアクセス
+4. 2つのブラウザウィンドウまたはタブで開いて動作確認
+
+【GitHubへのアップロード】
+1. GitHubでリポジトリを作成
+2. 以下のコマンドを実行:
+
+git init
+git add .
+git commit -m "卓球ゲームの初期コミット"
+git branch -M main
+git remote add origin https://github.com/あなたのユーザー名/リポジトリ名.git
+git push -u origin main
+
+【Renderでのデプロイ】
+1. https://render.com にアクセスしてアカウント作成
+2. New → Blueprint を選択
+3. GitHubリポジトリを連携
+4. render.yamlが自動検出されるので Apply をクリック
+5. 数分待つとデプロイ完了
+6. 表示されるURLにアクセスして動作確認
+
+【注意事項】
+- 無料プランでは15分間アクセスがないとスリープします
+- 初回アクセス時は30-60秒の起動時間がかかります
+- サーバー再起動時は対戦状態がリセットされます
+
+詳しくはREADME.mdを参照してください。
