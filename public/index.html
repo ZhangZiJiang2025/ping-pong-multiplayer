@@ -231,6 +231,7 @@
     let myName = '';
     let mySeat = null;
     let gameState = null;
+    let myPaddleY = 250; // ローカルパドル位置
 
     // WebSocket接続
     function connect() {
@@ -278,11 +279,13 @@
       difficultySelect.value = data.difficulty;
       difficultyValue.textContent = data.difficulty;
 
+      // 自分のパドル位置を同期（サーバーからの更新時のみ）
+      if (mySeat && data.paddles[mySeat] !== undefined) {
+        myPaddleY = data.paddles[mySeat];
+      }
+
       // UIの表示制御
       updateUI(data);
-
-      // ゲーム描画
-      draw(data);
     }
 
     // UI更新
@@ -384,13 +387,15 @@
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 左パドル
+      // 左パドル（自分の場合はローカル位置を使用）
+      const leftY = mySeat === 'left' ? myPaddleY : data.paddles.left;
       ctx.fillStyle = mySeat === 'left' ? '#4CAF50' : '#ffffff';
-      ctx.fillRect(0, data.paddles.left, 10, 80);
+      ctx.fillRect(0, leftY, 10, 80);
 
-      // 右パドル
+      // 右パドル（自分の場合はローカル位置を使用）
+      const rightY = mySeat === 'right' ? myPaddleY : data.paddles.right;
       ctx.fillStyle = mySeat === 'right' ? '#4CAF50' : '#ffffff';
-      ctx.fillRect(canvas.width - 10, data.paddles.right, 10, 80);
+      ctx.fillRect(canvas.width - 10, rightY, 10, 80);
 
       // ボール
       if (data.ball) {
@@ -464,29 +469,42 @@
       keys[e.key] = false;
     });
 
-    // パドル操作送信
-    setInterval(() => {
+    // ゲームループ（描画とローカルパドル更新）
+    function gameLoop() {
+      // ローカルパドル移動
       if (mySeat && gameState && gameState.gameStarted) {
-        const paddleSpeed = 8;
-        let currentY = gameState.paddles[mySeat];
+        const paddleSpeed = 15; // 速度を上げる
 
         if (keys['ArrowUp']) {
-          currentY -= paddleSpeed;
+          myPaddleY -= paddleSpeed;
         }
         if (keys['ArrowDown']) {
-          currentY += paddleSpeed;
+          myPaddleY += paddleSpeed;
         }
 
-        currentY = Math.max(0, Math.min(420, currentY)); // 420 = 500 - 80
+        myPaddleY = Math.max(0, Math.min(420, myPaddleY)); // 420 = 500 - 80
+      }
 
+      // 描画
+      if (gameState) {
+        draw(gameState);
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+    gameLoop();
+
+    // パドル位置をサーバーに送信（30fps）
+    setInterval(() => {
+      if (mySeat && gameState && gameState.gameStarted) {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
             type: 'paddle',
-            y: currentY
+            y: myPaddleY
           }));
         }
       }
-    }, 1000 / 30); // 30fps
+    }, 1000 / 30);
   </script>
 </body>
 </html>
