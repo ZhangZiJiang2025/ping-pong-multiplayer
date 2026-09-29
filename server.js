@@ -94,6 +94,9 @@ function handleMessage(ws, data) {
     case 'heartbeat':
       handleHeartbeat(ws, data.name);
       break;
+    case 'abort':
+      handleAbort(ws);
+      break;
   }
 }
 
@@ -163,6 +166,28 @@ function handleDifficultyChange(ws, difficulty) {
   const seat = findSeatByWs(ws);
   if (seat === 'left' && !gameState.gameStarted) {
     gameState.difficulty = difficulty;
+    broadcastState();
+  }
+}
+
+// 強制終了
+function handleAbort(ws) {
+  const seat = findSeatByWs(ws);
+  if (seat && gameState.gameStarted) {
+    // ゲームを停止
+    gameState.gameStarted = false;
+    gameState.ball = null;
+
+    if (gameState.gameLoopInterval) {
+      clearInterval(gameState.gameLoopInterval);
+      gameState.gameLoopInterval = null;
+    }
+
+    // スコアと準備フラグをリセット
+    gameState.scores = { left: 0, right: 0 };
+    gameState.readyFlags = { left: false, right: false };
+
+    console.log(`${gameState.seats[seat].name} が強制終了`);
     broadcastState();
   }
 }
