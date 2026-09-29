@@ -197,6 +197,7 @@
 
         <button id="readyButton" class="hidden">スタート</button>
         <button id="restartButton" class="hidden">再スタート</button>
+        <button id="abortButton" class="hidden" style="background: #f44336;">強制終了</button>
       </div>
 
       <div id="queueInfo" class="hidden"></div>
@@ -221,6 +222,7 @@
     const statusMessage = document.getElementById('statusMessage');
     const readyButton = document.getElementById('readyButton');
     const restartButton = document.getElementById('restartButton');
+    const abortButton = document.getElementById('abortButton');
     const difficultySelector = document.getElementById('difficultySelector');
     const difficultySelect = document.getElementById('difficultySelect');
     const difficultyDisplay = document.getElementById('difficultyDisplay');
@@ -318,6 +320,7 @@
         statusMessage.textContent = `対戦中です。しばらくお待ちください（あなたは${data.queuePosition}番目です）`;
         readyButton.classList.add('hidden');
         restartButton.classList.add('hidden');
+        abortButton.classList.add('hidden');
         queueInfo.classList.remove('hidden');
         queueInfo.textContent = `待機中: ${data.waitQueueLength}人`;
         return;
@@ -335,6 +338,7 @@
         }
         readyButton.classList.add('hidden');
         restartButton.classList.add('hidden');
+        abortButton.classList.add('hidden');
         return;
       }
 
@@ -360,6 +364,7 @@
             statusMessage.textContent += ' - 待機列に移動します...';
           }
         }
+        abortButton.classList.add('hidden'); // 試合終了時は非表示
       }
       // ゲーム中
       else if (data.gameStarted) {
@@ -367,6 +372,7 @@
         statusMessage.textContent = 'ゲーム中';
         readyButton.classList.add('hidden');
         restartButton.classList.add('hidden');
+        abortButton.classList.remove('hidden'); // 強制終了ボタンを表示
       }
       // スタート待ち
       else {
@@ -378,6 +384,7 @@
         }
         readyButton.classList.remove('hidden');
         restartButton.classList.add('hidden');
+        abortButton.classList.add('hidden'); // 強制終了ボタンを非表示
       }
     }
 
@@ -466,6 +473,13 @@
           type: 'difficulty',
           difficulty: difficultySelect.value
         }));
+      }
+    });
+
+    // 強制終了ボタン
+    abortButton.addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'abort' }));
       }
     });
 
