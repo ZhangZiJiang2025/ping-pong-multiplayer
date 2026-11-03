@@ -90,6 +90,17 @@
       background: #45a049;
     }
 
+    /* 無効化されたボタン（押せないことが分かるようグレーアウト） */
+    #readyButton:disabled, #restartButton:disabled {
+      background: #9e9e9e;
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    #readyButton:disabled:hover, #restartButton:disabled:hover {
+      background: #9e9e9e;
+    }
+
     #gameScreen {
       display: none;
       /* 表示時は JS が display:flex を設定する。
@@ -255,9 +266,15 @@
     #leaveButton { background: #f44336; }
     #leaveButton:hover { background: #d8382b; }
 
+    /* 選択できないボタンはグレーアウトする */
     #postMatchChoice > button:disabled {
-      opacity: 0.5;
-      cursor: default;
+      background: #9e9e9e;
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    #postMatchChoice > button:disabled:hover {
+      background: #9e9e9e;
     }
 
     #postMatchHint {
@@ -522,11 +539,13 @@
         statusMessage.textContent =
           `対戦中です。順番をお待ちください（あなたは${data.queuePosition}番目です）`;
         readyButton.classList.add('hidden');
+        readyButton.disabled = false;
         restartButton.classList.add('hidden');
         abortButton.classList.add('hidden');
-        postMatchChoice.classList.add('hidden');
         queueInfo.classList.remove('hidden');
         queueInfo.textContent = `待ち人数: ${data.waitQueueLength}人`;
+        // 待機中でも退出は選べる
+        showChoiceButtons(data, { allowRematch: false });
         return;
       }
 
@@ -537,19 +556,21 @@
         showPostMatchChoice(data);
         return;
       }
-      postMatchChoice.classList.add('hidden');
-
-      // 相手不在
-      if (!data.seats.left || !data.seats.right) {
+      // 相手不在＝対戦待ち中
+      if (!data.hasOpponent) {
         statusMessage.className = 'waiting';
         if (data.opponentDisconnected) {
-          statusMessage.textContent = '相手との接続が切れました。次の相手を待っています';
+          statusMessage.textContent = '対戦待ち中（相手との接続が切れました）';
         } else {
-          statusMessage.textContent = '相手を待っています...';
+          statusMessage.textContent = '対戦待ち中';
         }
-        readyButton.classList.add('hidden');
+        // 相手がいないのでスタートは押せない
+        readyButton.classList.remove('hidden');
+        readyButton.disabled = true;
         restartButton.classList.add('hidden');
         abortButton.classList.add('hidden');
+        // 退出はいつでも選べるようにしておく
+        showChoiceButtons(data, { allowRematch: false });
         return;
       }
 
@@ -558,8 +579,10 @@
         statusMessage.className = '';
         statusMessage.textContent = 'ゲーム中';
         readyButton.classList.add('hidden');
+        readyButton.disabled = false;
         restartButton.classList.add('hidden');
         abortButton.classList.remove('hidden'); // 強制終了ボタンを表示
+        postMatchChoice.classList.add('hidden');
       }
       // スタート待ち
       else {
@@ -574,8 +597,27 @@
           statusMessage.textContent = '準備ができたらスタートを押してください';
         }
         readyButton.classList.remove('hidden');
+        readyButton.disabled = false;
         restartButton.classList.add('hidden');
         abortButton.classList.add('hidden'); // 強制終了ボタンを非表示
+        // まだ1試合もしていないので「再戦する」は選べない
+        showChoiceButtons(data, { allowRematch: false });
+      }
+    }
+
+    // 「再戦する / 退出する」ボタンの表示制御。
+    // allowRematch が false のときは再戦をグレーアウトし、退出だけ選べるようにする。
+    function showChoiceButtons(data, options) {
+      const allowRematch = options && options.allowRematch;
+      postMatchChoice.classList.remove('hidden');
+
+      const chosen = !!data.myChoice;
+      rematchButton.disabled = !allowRematch || chosen;
+      leaveButton.disabled = chosen;
+
+      if (!allowRematch) {
+        // 試合終了後以外では案内文を出さない（退出ボタンのみ使える状態）
+        postMatchHint.textContent = '';
       }
     }
 
@@ -594,15 +636,15 @@
       }
 
       readyButton.classList.add('hidden');
+      readyButton.disabled = false;
       restartButton.classList.add('hidden');
       abortButton.classList.add('hidden');
-      postMatchChoice.classList.remove('hidden');
 
-      const chosen = !!data.myChoice;
-      rematchButton.disabled = chosen;
-      leaveButton.disabled = chosen;
+      // 試合を終えた直後なので「再戦する」も選べる
+      showChoiceButtons(data, { allowRematch: true });
 
       // 選択状況の案内
+      const chosen = !!data.myChoice;
       let hint;
       if (!chosen) {
         hint = '「再戦する」か「退出する」を選んでください';
@@ -610,11 +652,9 @@
           hint += `（残り${data.postMatchSecondsLeft}秒・未選択は退出扱い）`;
         }
       } else if (data.myChoice === 'rematch') {
-        hint = data.opponentChoice
-          ? '相手の選択を確認しています...'
-          : '再戦を選びました。相手の選択を待っています...';
+        hint = '再戦を選びました。相手の選択を待っています...';
       } else {
-        hint = '退出を選びました。処理しています...';
+        hint = '退出しています...';
       }
 
       if (data.waitQueueLength > 0) {
@@ -802,6 +842,7 @@
 
     // 選択待ちの残り秒数を毎秒更新する（表示のみ。判定はサーバー側）
     setInterval(() => {
+      if (hasLeft) return; // 退出済みなら何もしない
       if (!gameState || !gameState.postMatch) return;
       if (gameState.myChoice) return;
       if (typeof gameState.postMatchSecondsLeft !== 'number') return;
