@@ -90,15 +90,15 @@
       background: #45a049;
     }
 
-    /* 無効化されたボタン（押せないことが分かるようグレーアウト） */
-    #readyButton:disabled, #restartButton:disabled {
+    /* 無効化されたボタン（押せないことが分かるようグレーアウト）。
+       :hover より後に書くことで、無効時は常にグレーが適用される */
+    #joinButton:disabled, #readyButton:disabled,
+    #restartButton:disabled, #abortButton:disabled,
+    #joinButton:disabled:hover, #readyButton:disabled:hover,
+    #restartButton:disabled:hover, #abortButton:disabled:hover {
       background: #9e9e9e;
       opacity: 0.6;
       cursor: not-allowed;
-    }
-
-    #readyButton:disabled:hover, #restartButton:disabled:hover {
-      background: #9e9e9e;
     }
 
     #gameScreen {
@@ -267,14 +267,11 @@
     #leaveButton:hover { background: #d8382b; }
 
     /* 選択できないボタンはグレーアウトする */
-    #postMatchChoice > button:disabled {
+    #postMatchChoice > button:disabled,
+    #postMatchChoice > button:disabled:hover {
       background: #9e9e9e;
       opacity: 0.6;
       cursor: not-allowed;
-    }
-
-    #postMatchChoice > button:disabled:hover {
-      background: #9e9e9e;
     }
 
     #postMatchHint {
@@ -597,7 +594,10 @@
           statusMessage.textContent = '準備ができたらスタートを押してください';
         }
         readyButton.classList.remove('hidden');
-        readyButton.disabled = false;
+        // 自分がスタートを押し済みならグレーのまま押せない状態にする。
+        // サーバーの readyFlags が基準なので、再戦や相手交代で
+        // フラグがリセットされれば自動的に緑・押せる状態に戻る。
+        readyButton.disabled = !!data.readyFlags[mySeat];
         restartButton.classList.add('hidden');
         abortButton.classList.add('hidden'); // 強制終了ボタンを非表示
         // スタート前。「再戦する」は選べないが「退出する」は選べる
@@ -738,6 +738,8 @@
     readyButton.addEventListener('click', () => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ready' }));
+        // サーバーの応答を待たずに、押した直後からグレー・押せない状態にする
+        readyButton.disabled = true;
       }
     });
 
