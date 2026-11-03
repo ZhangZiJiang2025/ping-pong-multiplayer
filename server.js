@@ -22,11 +22,11 @@ const gameState = {
   postMatchDeadline: null // 選択期限（クライアントに残り秒数を表示するため）
 };
 
-// 試合終了後、選択しないまま放置された場合に「退出」とみなすまでの時間（既定60秒）
+// 試合終了後、選択しないまま放置された場合に「退出」とみなすまでの時間（既定30秒）
 const POST_MATCH_TIMEOUT_MS =
   Number(process.env.POST_MATCH_TIMEOUT_MS) > 0
     ? Number(process.env.POST_MATCH_TIMEOUT_MS)
-    : 60 * 1000;
+    : 30 * 1000;
 
 // 難易度設定
 const DIFFICULTY_SETTINGS = {
@@ -441,11 +441,11 @@ function handlePostMatchChoice(ws, choice) {
 }
 
 // 退出処理。選んだ本人だけを席（または待機列）から外し、相手はゲームに残す。
-// 試合終了後に限らず、初回入室時や対戦待ち中でも即座に実行できる。
+// スタート前・対戦待ち中・試合終了後に実行できる（対戦中は不可）。
 function handleLeave(ws) {
   const seat = findSeatByWs(ws);
 
-  // 待機列からの退出
+  // 待機列からの退出（対戦中かどうかに関わらずいつでも抜けられる）
   if (!seat) {
     const index = gameState.waitQueue.findIndex(p => p.ws === ws);
     if (index === -1) return;
@@ -457,19 +457,17 @@ function handleLeave(ws) {
     return;
   }
 
+  // 対戦中（スタート〜試合終了まで）は席にいる人の退出を受け付けない。
+  // 途中でやめたい場合は既存の「強制終了」を使う。
+  // ※タブを閉じた・接続が切れた場合は従来どおりタイムアウト処理で扱う
+  if (gameState.gameStarted) {
+    console.log(`${gameState.seats[seat].name} の退出要求を無視（対戦中のため）`);
+    return;
+  }
+
   // 席からの退出
   const player = gameState.seats[seat];
   console.log(`${player.name} が退出（${seat}席が空席に）`);
-
-  // ゲーム中に退出した場合は試合を止める
-  if (gameState.gameStarted) {
-    gameState.gameStarted = false;
-    gameState.ball = null;
-    if (gameState.gameLoopInterval) {
-      clearInterval(gameState.gameLoopInterval);
-      gameState.gameLoopInterval = null;
-    }
-  }
 
   gameState.seats[seat] = null;
   notifyRemoved(player);
