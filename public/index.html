@@ -221,6 +221,63 @@
       opacity: 0.8;
     }
 
+    /* 退出後に名前入力画面で出す案内 */
+    #leaveNotice {
+      margin-bottom: 20px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.15);
+      font-size: 1em;
+      color: #ffd700;
+    }
+
+    /* 試合終了後の「再戦する / 退出する」 */
+    #postMatchChoice {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #postMatchChoice > button {
+      padding: 15px 30px;
+      font-size: 1.2em;
+      border: none;
+      border-radius: 10px;
+      color: white;
+      cursor: pointer;
+      transition: background 0.3s;
+      min-width: 180px;
+    }
+
+    #rematchButton { background: #4CAF50; }
+    #rematchButton:hover { background: #45a049; }
+    #leaveButton { background: #f44336; }
+    #leaveButton:hover { background: #d8382b; }
+
+    #postMatchChoice > button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    #postMatchHint {
+      font-size: 0.95em;
+      opacity: 0.9;
+      min-height: 1.2em;
+    }
+
+    /* 選択ボタンは横並びにできる幅があれば横並びにする */
+    @media (min-width: 480px) {
+      #postMatchChoice {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      #postMatchHint {
+        flex-basis: 100%;
+      }
+    }
+
     /* ===== 縦が狭い環境（ノートPC等）だけ余白・文字を圧縮する。
            高さ 820px 超のデスクトップでは上の既定値がそのまま使われる ===== */
     @media (max-height: 820px) {
@@ -264,6 +321,7 @@
     <!-- 名前入力画面 -->
     <div id="nameScreen">
       <h1>🏓 卓球ゲーム</h1>
+      <div id="leaveNotice" class="hidden"></div>
       <input type="text" id="nameInput" placeholder="名前を入力してください" maxlength="15">
       <button id="joinButton">参加</button>
     </div>
@@ -305,6 +363,13 @@
         <button id="readyButton" class="hidden">スタート</button>
         <button id="restartButton" class="hidden">再スタート</button>
         <button id="abortButton" class="hidden" style="background: #f44336;">強制終了</button>
+
+        <!-- 試合終了後の選択 -->
+        <div id="postMatchChoice" class="hidden">
+          <button id="rematchButton">再戦する</button>
+          <button id="leaveButton">退出する</button>
+          <div id="postMatchHint"></div>
+        </div>
       </div>
 
       <div id="queueInfo" class="hidden"></div>
@@ -335,6 +400,11 @@
     const difficultyDisplay = document.getElementById('difficultyDisplay');
     const difficultyValue = document.getElementById('difficultyValue');
     const queueInfo = document.getElementById('queueInfo');
+    const postMatchChoice = document.getElementById('postMatchChoice');
+    const rematchButton = document.getElementById('rematchButton');
+    const leaveButton = document.getElementById('leaveButton');
+    const postMatchHint = document.getElementById('postMatchHint');
+    const leaveNotice = document.getElementById('leaveNotice');
 
     // パドルの側（seat）と画面上の表示位置の対応表。
     // ここが唯一の判断基準で、描画(draw)もラベル配置もこの値から導出する。
@@ -360,6 +430,8 @@
     let ws;
     let myName = '';
     let mySeat = null;
+    let hasLeft = false;        // 自分で退出したか（再接続を抑止する）
+    let heartbeatTimer = null;  // ハートビートの多重起動を防ぐ
     let gameState = null;
     let myPaddleY = 250; // ローカルパドル位置
     let previousGameStarted = false; // 前回のゲーム状態
@@ -380,11 +452,16 @@
         const data = JSON.parse(event.data);
         if (data.type === 'state') {
           handleStateUpdate(data);
+        } else if (data.type === 'removed') {
+          // 退出が確定した。自動再接続せずに名前入力画面へ戻す
+          handleRemoved();
         }
       };
 
       ws.onclose = () => {
         console.log('WebSocket切断');
+        // 自分で退出した場合は再接続しない
+        if (hasLeft) return;
         setTimeout(connect, 1000);
       };
 
@@ -439,19 +516,28 @@
         difficultyDisplay.classList.add('hidden');
       }
 
-      // 観戦者
+      // 観戦者（待機列）
       if (mySeat === 'spectator') {
         statusMessage.className = 'waiting';
-        statusMessage.textContent = `対戦中です。しばらくお待ちください（あなたは${data.queuePosition}番目です）`;
+        statusMessage.textContent =
+          `対戦中です。順番をお待ちください（あなたは${data.queuePosition}番目です）`;
         readyButton.classList.add('hidden');
         restartButton.classList.add('hidden');
         abortButton.classList.add('hidden');
+        postMatchChoice.classList.add('hidden');
         queueInfo.classList.remove('hidden');
-        queueInfo.textContent = `待機中: ${data.waitQueueLength}人`;
+        queueInfo.textContent = `待ち人数: ${data.waitQueueLength}人`;
         return;
       }
 
       queueInfo.classList.add('hidden');
+
+      // 試合終了後の選択（再戦 / 退出）— 勝敗より先に判定する
+      if (data.postMatch) {
+        showPostMatchChoice(data);
+        return;
+      }
+      postMatchChoice.classList.add('hidden');
 
       // 相手不在
       if (!data.seats.left || !data.seats.right) {
@@ -467,32 +553,8 @@
         return;
       }
 
-      // 勝敗表示
-      if (data.result) {
-        if (data.result === 'win') {
-          statusMessage.className = 'win';
-          statusMessage.textContent = 'あなたの勝ち！';
-        } else if (data.result === 'lose') {
-          statusMessage.className = 'lose';
-          statusMessage.textContent = 'あなたの負け';
-        }
-
-        // 再戦ボタン
-        if (data.waitQueueLength === 0) {
-          restartButton.classList.remove('hidden');
-          readyButton.classList.add('hidden');
-        } else {
-          restartButton.classList.add('hidden');
-          readyButton.classList.add('hidden');
-
-          if (data.result === 'lose') {
-            statusMessage.textContent += ' - 待機列に移動します...';
-          }
-        }
-        abortButton.classList.add('hidden'); // 試合終了時は非表示
-      }
       // ゲーム中
-      else if (data.gameStarted) {
+      if (data.gameStarted) {
         statusMessage.className = '';
         statusMessage.textContent = 'ゲーム中';
         readyButton.classList.add('hidden');
@@ -502,7 +564,11 @@
       // スタート待ち
       else {
         statusMessage.className = '';
-        if (data.readyFlags[mySeat]) {
+        if (data.justSeated) {
+          // 待機列から席に入ったばかり
+          statusMessage.textContent =
+            'あなたの番です！準備ができたらスタートを押してください';
+        } else if (data.readyFlags[mySeat]) {
           statusMessage.textContent = '相手の準備を待っています...';
         } else {
           statusMessage.textContent = '準備ができたらスタートを押してください';
@@ -511,6 +577,50 @@
         restartButton.classList.add('hidden');
         abortButton.classList.add('hidden'); // 強制終了ボタンを非表示
       }
+    }
+
+    // 試合終了後の「再戦する / 退出する」表示
+    function showPostMatchChoice(data) {
+      // 勝敗メッセージ
+      if (data.result === 'win') {
+        statusMessage.className = 'win';
+        statusMessage.textContent = 'あなたの勝ち！';
+      } else if (data.result === 'lose') {
+        statusMessage.className = 'lose';
+        statusMessage.textContent = 'あなたの負け';
+      } else {
+        statusMessage.className = '';
+        statusMessage.textContent = '試合終了';
+      }
+
+      readyButton.classList.add('hidden');
+      restartButton.classList.add('hidden');
+      abortButton.classList.add('hidden');
+      postMatchChoice.classList.remove('hidden');
+
+      const chosen = !!data.myChoice;
+      rematchButton.disabled = chosen;
+      leaveButton.disabled = chosen;
+
+      // 選択状況の案内
+      let hint;
+      if (!chosen) {
+        hint = '「再戦する」か「退出する」を選んでください';
+        if (typeof data.postMatchSecondsLeft === 'number') {
+          hint += `（残り${data.postMatchSecondsLeft}秒・未選択は退出扱い）`;
+        }
+      } else if (data.myChoice === 'rematch') {
+        hint = data.opponentChoice
+          ? '相手の選択を確認しています...'
+          : '再戦を選びました。相手の選択を待っています...';
+      } else {
+        hint = '退出を選びました。処理しています...';
+      }
+
+      if (data.waitQueueLength > 0) {
+        hint += ` ／ 待ち人数: ${data.waitQueueLength}人`;
+      }
+      postMatchHint.textContent = hint;
     }
 
     // 描画
@@ -557,13 +667,18 @@
       }
 
       myName = name;
+      hasLeft = false;
+      gameState = null;
+      mySeat = null;
+      leaveNotice.classList.add('hidden');
       nameScreen.style.display = 'none';
       gameScreen.style.display = 'flex';
 
       connect();
 
-      // ハートビート送信（5秒ごと）
-      setInterval(() => {
+      // ハートビート送信（5秒ごと）。再参加時に二重起動しないようにする
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'heartbeat', name: myName }));
         }
@@ -608,6 +723,48 @@
       }
     });
 
+    // 試合終了後：再戦する
+    rematchButton.addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'rematch' }));
+        rematchButton.disabled = true;
+        leaveButton.disabled = true;
+      }
+    });
+
+    // 試合終了後：退出する
+    leaveButton.addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'leave' }));
+        rematchButton.disabled = true;
+        leaveButton.disabled = true;
+      }
+    });
+
+    // サーバーから退出が確定した通知を受けた時の処理
+    function handleRemoved() {
+      hasLeft = true;
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      if (ws) ws.close();
+
+      gameState = null;
+      mySeat = null;
+
+      // 名前入力画面に戻す
+      gameScreen.style.display = 'none';
+      nameScreen.style.display = 'block';
+      leaveNotice.classList.remove('hidden');
+      leaveNotice.textContent = 'ゲームを退出しました。もう一度遊ぶには名前を入力して参加してください';
+
+      // ボタンの状態を戻しておく
+      rematchButton.disabled = false;
+      leaveButton.disabled = false;
+      postMatchChoice.classList.add('hidden');
+    }
+
     // キーボード操作
     const keys = {};
     document.addEventListener('keydown', (e) => {
@@ -642,6 +799,17 @@
       requestAnimationFrame(gameLoop);
     }
     gameLoop();
+
+    // 選択待ちの残り秒数を毎秒更新する（表示のみ。判定はサーバー側）
+    setInterval(() => {
+      if (!gameState || !gameState.postMatch) return;
+      if (gameState.myChoice) return;
+      if (typeof gameState.postMatchSecondsLeft !== 'number') return;
+      if (gameState.postMatchSecondsLeft > 0) {
+        gameState.postMatchSecondsLeft--;
+      }
+      showPostMatchChoice(gameState);
+    }, 1000);
 
     // パドル位置をサーバーに送信（30fps）
     setInterval(() => {
