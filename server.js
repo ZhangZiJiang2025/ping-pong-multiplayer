@@ -15,7 +15,8 @@ const gameState = {
   gameStarted: false,
   readyFlags: { left: false, right: false },
   difficulty: 'ふつう',
-  gameLoopInterval: null
+  gameLoopInterval: null,
+  swapTimer: null // 敗者交代の予約タイマー（多重起動防止）
 };
 
 // 難易度設定
@@ -127,6 +128,13 @@ function handleJoin(ws, name) {
     // 待機列に追加
     gameState.waitQueue.push({ name, ws, lastHeartbeat: Date.now() });
     console.log(`${name} が待機列に追加（${gameState.waitQueue.length}番目）`);
+
+    // 試合終了後（勝敗表示が出たまま）に待機者が入ってきた場合、
+    // endGame() の交代処理は既に終わっているため、ここで改めて交代を予約する。
+    // これがないと、席の2人は再戦できず待機者も入れないまま停止してしまう。
+    if (isMatchFinished()) {
+      scheduleLoserSwap();
+    }
   }
 
   broadcastState();
@@ -225,6 +233,12 @@ function handleDisconnect(ws) {
 
 // ゲーム開始
 function startGame() {
+  // 交代予約が残っていれば取り消す（試合が始まる以上、交代は不要）
+  if (gameState.swapTimer) {
+    clearTimeout(gameState.swapTimer);
+    gameState.swapTimer = null;
+  }
+
   gameState.gameStarted = true;
   gameState.readyFlags = { left: false, right: false };
 
@@ -346,35 +360,58 @@ function endGame() {
     gameState.gameLoopInterval = null;
   }
 
-  const winner = gameState.scores.left >= 5 ? 'left' : 'right';
-  const loser = winner === 'left' ? 'right' : 'left';
-
   broadcastState();
 
   // 待機者がいる場合、負けた側を交代
   if (gameState.waitQueue.length > 0) {
-    setTimeout(() => {
-      const loserPlayer = gameState.seats[loser];
-      const nextPlayer = gameState.waitQueue.shift();
-
-      // 負けた側を待機列の末尾に追加
-      if (loserPlayer) {
-        gameState.waitQueue.push(loserPlayer);
-      }
-
-      // 次のプレイヤーを席に配置
-      gameState.seats[loser] = nextPlayer;
-
-      // スコアリセット
-      gameState.scores = { left: 0, right: 0 };
-      gameState.readyFlags = { left: false, right: false };
-
-      broadcastState();
-    }, 3000); // 3秒後に交代
+    scheduleLoserSwap();
   } else {
     // 待機者がいない場合、再戦可能（スコアはそのまま保持）
     gameState.readyFlags = { left: false, right: false };
   }
+}
+
+// 試合結果が確定済み（勝敗表示が出ている状態）かどうか
+function isMatchFinished() {
+  return !gameState.gameStarted && gameState.ball === null &&
+         (gameState.scores.left >= 5 || gameState.scores.right >= 5);
+}
+
+// 負けた側を待機列の先頭と交代させる（3秒後）。
+// 多重起動を防ぐため swapTimer で管理する。
+function scheduleLoserSwap() {
+  if (gameState.swapTimer) return; // すでに交代予約済み
+
+  gameState.swapTimer = setTimeout(() => {
+    gameState.swapTimer = null;
+
+    // 予約後に状況が変わっていないか再確認
+    if (!isMatchFinished() || gameState.waitQueue.length === 0) {
+      broadcastState();
+      return;
+    }
+
+    const winner = gameState.scores.left >= 5 ? 'left' : 'right';
+    const loser = winner === 'left' ? 'right' : 'left';
+
+    const loserPlayer = gameState.seats[loser];
+    const nextPlayer = gameState.waitQueue.shift();
+
+    // 負けた側を待機列の末尾に追加
+    if (loserPlayer) {
+      gameState.waitQueue.push(loserPlayer);
+    }
+
+    // 次のプレイヤーを席に配置
+    gameState.seats[loser] = nextPlayer;
+
+    // スコアリセット
+    gameState.scores = { left: 0, right: 0 };
+    gameState.readyFlags = { left: false, right: false };
+
+    console.log(`${nextPlayer.name} が ${loser}席に交代（待機列の残り${gameState.waitQueue.length}人）`);
+    broadcastState();
+  }, 3000); // 3秒後に交代
 }
 
 // ヘルパー関数
@@ -454,6 +491,12 @@ setInterval(() => {
   ['left', 'right'].forEach(seat => {
     if (gameState.seats[seat] && now - gameState.seats[seat].lastHeartbeat > 10000) {
       console.log(`${gameState.seats[seat].name} がタイムアウト`);
+
+      // 交代予約が残っていれば取り消す（席構成が変わるため）
+      if (gameState.swapTimer) {
+        clearTimeout(gameState.swapTimer);
+        gameState.swapTimer = null;
+      }
 
       // 席を空ける
       gameState.seats[seat] = null;
