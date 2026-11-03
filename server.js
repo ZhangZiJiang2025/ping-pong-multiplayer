@@ -384,17 +384,13 @@ function isMatchFinished() {
 function startPostMatchChoice() {
   gameState.postMatchChoice = { left: null, right: null };
 
-  // 空席は選択対象にならないので、あらかじめ 'leave' 扱いにしておく
-  ['left', 'right'].forEach(seat => {
-    if (!gameState.seats[seat]) gameState.postMatchChoice[seat] = 'leave';
-  });
-
   clearPostMatchTimer();
   gameState.postMatchDeadline = Date.now() + POST_MATCH_TIMEOUT_MS;
   gameState.postMatchTimer = setTimeout(() => {
     gameState.postMatchTimer = null;
 
-    // 時間内に選ばなかった席は「退出」とみなす
+    // 時間切れ。まだ選んでいない席だけを「退出」とみなす。
+    // すでに「再戦」を選んでいる人は、その意思を尊重してここでは触らない。
     ['left', 'right'].forEach(seat => {
       if (gameState.seats[seat] && !gameState.postMatchChoice[seat]) {
         console.log(`${gameState.seats[seat].name} が時間切れのため退出扱い`);
@@ -418,15 +414,23 @@ function clearPostMatchTimer() {
 
 // 試合終了後の選択を受け取る（'rematch' または 'leave'）
 function handlePostMatchChoice(ws, choice) {
+  if (choice !== 'rematch' && choice !== 'leave') return;
+
+  // 「退出」は試合の前後を問わず、いつでも本人の意思だけで実行できる
+  if (choice === 'leave') {
+    handleLeave(ws);
+    return;
+  }
+
+  // 「再戦」は試合が終わった直後にだけ有効
   const seat = findSeatByWs(ws);
   if (!seat || !isMatchFinished()) return;
-  if (choice !== 'rematch' && choice !== 'leave') return;
   if (gameState.postMatchChoice[seat]) return; // 二重選択は無視
 
   gameState.postMatchChoice[seat] = choice;
-  console.log(`${gameState.seats[seat].name} が「${choice === 'rematch' ? '再戦' : '退出'}」を選択`);
+  console.log(`${gameState.seats[seat].name} が「再戦」を選択`);
 
-  // 相手がまだ選んでいなければ、選択状況だけ配信して待つ
+  // 相手の同意が必要。相手がまだ選んでいなければ選択状況だけ配信して待つ
   const other = seat === 'left' ? 'right' : 'left';
   if (gameState.seats[other] && !gameState.postMatchChoice[other]) {
     broadcastState();
@@ -436,10 +440,72 @@ function handlePostMatchChoice(ws, choice) {
   resolvePostMatch();
 }
 
-// 両者の選択が出揃った時点で、再戦 or 交代を確定させる
+// 退出処理。選んだ本人だけを席（または待機列）から外し、相手はゲームに残す。
+// 試合終了後に限らず、初回入室時や対戦待ち中でも即座に実行できる。
+function handleLeave(ws) {
+  const seat = findSeatByWs(ws);
+
+  // 待機列からの退出
+  if (!seat) {
+    const index = gameState.waitQueue.findIndex(p => p.ws === ws);
+    if (index === -1) return;
+    const player = gameState.waitQueue[index];
+    gameState.waitQueue.splice(index, 1);
+    console.log(`${player.name} が待機列から退出`);
+    notifyRemoved(player);
+    broadcastState();
+    return;
+  }
+
+  // 席からの退出
+  const player = gameState.seats[seat];
+  console.log(`${player.name} が退出（${seat}席が空席に）`);
+
+  // ゲーム中に退出した場合は試合を止める
+  if (gameState.gameStarted) {
+    gameState.gameStarted = false;
+    gameState.ball = null;
+    if (gameState.gameLoopInterval) {
+      clearInterval(gameState.gameLoopInterval);
+      gameState.gameLoopInterval = null;
+    }
+  }
+
+  gameState.seats[seat] = null;
+  notifyRemoved(player);
+
+  // 選択待ちを終了させ、残った相手の選択状態もリセットする
+  clearPostMatchTimer();
+  gameState.postMatchChoice = { left: null, right: null };
+
+  // 空いた席に待機列の先頭を着席させる
+  if (gameState.waitQueue.length > 0) {
+    const next = gameState.waitQueue.shift();
+    gameState.seats[seat] = next;
+    next.joinedAt = Date.now();
+    console.log(`${next.name} が ${seat}席に着席（待機列の残り${gameState.waitQueue.length}人）`);
+  }
+
+  // 新しい試合の準備（残った相手もスタートを押せる状態に戻す）
+  gameState.scores = { left: 0, right: 0 };
+  gameState.readyFlags = { left: false, right: false };
+
+  broadcastState();
+}
+
+// 退出したことを本人に通知する
+function notifyRemoved(player) {
+  if (player && player.ws && player.ws.readyState === WebSocket.OPEN) {
+    player.ws.send(JSON.stringify({ type: 'removed', reason: 'left' }));
+  }
+}
+
+// 選択内容に基づいて、再戦 or 退出を確定させる。
+// 「退出」を選んだ席だけを空け、それ以外の人は必ず席に残す。
 function resolvePostMatch() {
   clearPostMatchTimer();
 
+  // 退出を選んだ席だけを抽出（選んでいない席・再戦を選んだ席は対象外）
   const leaving = ['left', 'right'].filter(
     seat => gameState.seats[seat] && gameState.postMatchChoice[seat] === 'leave'
   );
@@ -454,16 +520,12 @@ function resolvePostMatch() {
     return;
   }
 
-  // 退出者を席から外す（ゲームから完全に離脱。待機列には戻さない）
+  // 退出者だけを席から外す（ゲームから完全に離脱。待機列には戻さない）
   leaving.forEach(seat => {
     const player = gameState.seats[seat];
     console.log(`${player.name} が退出（${seat}席が空席に）`);
     gameState.seats[seat] = null;
-
-    // 退出したことを本人に通知してから切断する
-    if (player.ws && player.ws.readyState === WebSocket.OPEN) {
-      player.ws.send(JSON.stringify({ type: 'removed', reason: 'left' }));
-    }
+    notifyRemoved(player);
   });
 
   // 空いた席に待機列の先頭から順に着席させる
@@ -476,7 +538,7 @@ function resolvePostMatch() {
     }
   });
 
-  // 新しい試合の準備
+  // 新しい試合の準備（残った人も、新しく入った人も未準備の状態から始める）
   gameState.scores = { left: 0, right: 0 };
   gameState.readyFlags = { left: false, right: false };
   gameState.postMatchChoice = { left: null, right: null };
@@ -513,6 +575,8 @@ function broadcastState() {
     difficulty: gameState.difficulty,
     waitQueueLength: gameState.waitQueue.length,
     // 試合終了後の選択待ちかどうか（クライアントで再戦/退出ボタンを出す判定に使う）
+    // 対戦相手が揃っているか（揃っていなければ「対戦待ち中」）
+    hasOpponent: !!(gameState.seats.left && gameState.seats.right),
     postMatch: isMatchFinished(),
     postMatchSecondsLeft: gameState.postMatchDeadline
       ? Math.max(0, Math.ceil((gameState.postMatchDeadline - Date.now()) / 1000))
