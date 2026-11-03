@@ -11,18 +11,40 @@
       box-sizing: border-box;
     }
 
+    html {
+      height: 100%;
+    }
+
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       display: flex;
       justify-content: center;
       align-items: center;
-      min-height: 100vh;
+      /* 中身があふれても上側が見切れないようにする（対応ブラウザのみ） */
+      align-items: safe center;
+      /* 表示領域の高さに固定（dvh 非対応ブラウザは vh にフォールバック） */
+      height: 100vh;
+      height: 100dvh;
+      padding: 8px;
+      /* 通常はあふれないのでスクロールバーは出ない。
+         極端に狭い場合の安全弁としてのみ auto にしておく */
+      overflow: auto;
       color: white;
     }
 
+    /* 表示領域いっぱいの「確定した高さ」を持つ枠。
+       これがないと子要素の max-height:100% が解決されず canvas が縮まない。
+       中身は中央寄せなので、デスクトップでの見た目は従来どおり */
     #container {
       text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
     }
 
     #nameScreen, #gameScreen {
@@ -31,6 +53,11 @@
       padding: 40px;
       border-radius: 20px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      /* 伸びはせず、縦が足りないときだけ縮む */
+      flex: 0 1 auto;
+      max-width: 100%;
+      min-height: 0;
+      overflow: hidden;
     }
 
     #nameScreen h1 {
@@ -65,6 +92,14 @@
 
     #gameScreen {
       display: none;
+      /* 表示時は JS が display:flex を設定する。
+         canvas 以外は固定高、canvas だけが余りを受け取って伸縮する */
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    #gameInfo, #statusMessage, #controls, #queueInfo, #keyHelp {
+      flex: 0 0 auto;
     }
 
     #gameInfo {
@@ -88,12 +123,35 @@
       font-weight: bold;
     }
 
+    /* canvas を囲む伸縮エリア。余った縦スペースをすべて受け取る */
+    #canvasWrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      min-width: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
     #canvas {
       border: 3px solid white;
       border-radius: 10px;
       background: #1a1a2e;
       display: block;
       margin: 0 auto;
+      /* 内部座標(800x500)の縦横比を保ったまま、
+         canvasWrap の幅・高さの小さい方に合わせて縮小する。
+         box-sizing を content-box に戻し、border 分(3px*2)を差し引く。
+         ※ canvas.width/height 属性(800x500)は変更していないため、
+           ゲームロジックの座標系には一切影響しない。 */
+      box-sizing: content-box;
+      aspect-ratio: 800 / 500;
+      width: auto;
+      height: auto;
+      min-width: 0;
+      min-height: 0;
+      max-width: calc(100% - 6px);
+      max-height: calc(100% - 6px);
     }
 
     #controls {
@@ -152,6 +210,49 @@
     .hidden {
       display: none;
     }
+
+    #keyHelp {
+      margin-top: 20px;
+      font-size: 0.9em;
+      opacity: 0.8;
+    }
+
+    /* ===== 縦が狭い環境（ノートPC等）だけ余白・文字を圧縮する。
+           高さ 820px 超のデスクトップでは上の既定値がそのまま使われる ===== */
+    @media (max-height: 820px) {
+      #gameScreen {
+        padding: 20px 28px;
+      }
+      #gameInfo { margin-bottom: 10px; font-size: 1.15em; }
+      #playerNames { margin-bottom: 4px; }
+      #scores { margin-bottom: 10px; font-size: 1.6em; }
+      #statusMessage { margin-top: 10px; font-size: 1.15em; min-height: 26px; }
+      #controls { margin-top: 10px; }
+      #difficultySelector { margin: 10px 0; }
+      #queueInfo { margin-top: 8px; }
+      #keyHelp { margin-top: 10px; }
+    }
+
+    @media (max-height: 620px) {
+      body { padding: 4px; }
+      #gameScreen {
+        padding: 10px 16px;
+        border-radius: 12px;
+      }
+      #gameInfo { margin-bottom: 4px; font-size: 1em; }
+      #playerNames { margin-bottom: 2px; font-size: 1em; }
+      #scores { margin-bottom: 4px; font-size: 1.3em; }
+      #statusMessage { margin-top: 4px; font-size: 1em; min-height: 20px; }
+      #controls { margin-top: 4px; }
+      #difficultySelector { margin: 4px 0; }
+      #readyButton, #restartButton, #abortButton {
+        padding: 8px 18px;
+        font-size: 1em;
+      }
+      #queueInfo { margin-top: 4px; font-size: 0.95em; }
+      #keyHelp { margin-top: 4px; font-size: 0.8em; }
+      .win, .lose { font-size: 1.3em; }
+    }
   </style>
 </head>
 <body>
@@ -176,7 +277,9 @@
         </div>
       </div>
 
-      <canvas id="canvas" width="800" height="500"></canvas>
+      <div id="canvasWrap">
+        <canvas id="canvas" width="800" height="500"></canvas>
+      </div>
 
       <div id="statusMessage"></div>
 
@@ -202,7 +305,7 @@
 
       <div id="queueInfo" class="hidden"></div>
 
-      <div style="margin-top: 20px; font-size: 0.9em; opacity: 0.8;">
+      <div id="keyHelp">
         矢印キー ↑↓ でパドルを操作
       </div>
     </div>
@@ -433,7 +536,7 @@
 
       myName = name;
       nameScreen.style.display = 'none';
-      gameScreen.style.display = 'block';
+      gameScreen.style.display = 'flex';
 
       connect();
 
