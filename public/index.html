@@ -107,8 +107,11 @@
       font-size: 1.3em;
     }
 
+    /* flex-direction を明示し、order による左右指定が確実に効くようにする。
+       （row-reverse 等が紛れ込んでも左右が反転しないようにするため） */
     #playerNames {
       display: flex;
+      flex-direction: row;
       justify-content: space-between;
       margin-bottom: 10px;
       font-weight: bold;
@@ -117,6 +120,7 @@
 
     #scores {
       display: flex;
+      flex-direction: row;
       justify-content: space-between;
       margin-bottom: 20px;
       font-size: 2em;
@@ -332,6 +336,27 @@
     const difficultyValue = document.getElementById('difficultyValue');
     const queueInfo = document.getElementById('queueInfo');
 
+    // パドルの側（seat）と画面上の表示位置の対応表。
+    // ここが唯一の判断基準で、描画(draw)もラベル配置もこの値から導出する。
+    // left席のパドルは canvas の x=0 側、right席のパドルは x=canvas.width 側に描かれる。
+    const SIDE_ORDER = { left: 1, right: 2 }; // CSS order: 小さいほど画面左
+
+    // サーバーが割り当てた席に基づいてラベル・スコアを配置する
+    function renderSideLabels(data) {
+      ['left', 'right'].forEach((side) => {
+        const nameEl = document.getElementById(side + 'PlayerName');
+        const scoreEl = document.getElementById(side + 'Score');
+
+        // 表示内容：その席に座っているプレイヤーの名前とスコア
+        nameEl.textContent = data.seats[side] || '-';
+        scoreEl.textContent = data.scores[side];
+
+        // 表示位置：DOM順やCSSの既定値に依存せず、席から明示的に決める
+        nameEl.style.order = SIDE_ORDER[side];
+        scoreEl.style.order = SIDE_ORDER[side];
+      });
+    }
+
     let ws;
     let myName = '';
     let mySeat = null;
@@ -374,13 +399,10 @@
       gameState = data;
       mySeat = data.mySeat;
 
-      // プレイヤー名表示
-      leftPlayerName.textContent = data.seats.left || '-';
-      rightPlayerName.textContent = data.seats.right || '-';
-
-      // スコア表示
-      leftScore.textContent = data.scores.left;
-      rightScore.textContent = data.scores.right;
+      // プレイヤー名・スコア表示
+      // サーバーが割り当てたパドルの側（seat）を唯一の根拠として、
+      // 同じ側のラベル要素に表示する。入室順には依存しない。
+      renderSideLabels(data);
 
       // 難易度表示
       difficultySelect.value = data.difficulty;
